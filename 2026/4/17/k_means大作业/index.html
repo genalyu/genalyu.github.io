@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片像素颜色可视化 - K-means 聚类</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: "Times New Roman", "SimSun", serif;
+            background: #fff;
+            color: #222;
+            min-height: 100vh;
+            font-size: 15px;
+        }
+        .header {
+            border-bottom: 2px solid #000;
+            padding: 16px 30px;
+            text-align: center;
+        }
+        .header h1 { font-size: 22px; margin-bottom: 2px; letter-spacing: 1px; }
+        .header p { font-size: 13px; color: #666; }
+        .container {
+            max-width: 1200px;
+            margin: 16px auto;
+            padding: 0 16px;
+        }
+
+        /* Upload area */
+        .upload-area {
+            border: 1px dashed #999;
+            padding: 30px;
+            text-align: center;
+            background: #fafafa;
+            cursor: pointer;
+            transition: border-color 0.2s;
+            margin-bottom: 16px;
+        }
+        .upload-area:hover, .upload-area.dragover {
+            border-color: #000;
+            background: #f0f0f0;
+        }
+        .upload-area .icon { font-size: 36px; margin-bottom: 6px; color: #888; }
+        .upload-area p { color: #888; font-size: 14px; }
+        .upload-area input { display: none; }
+
+        /* Controls panel */
+        .controls {
+            border: 1px solid #ccc;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            background: #fafafa;
+        }
+        .controls-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            align-items: flex-end;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .control-group label {
+            font-size: 13px;
+            font-weight: bold;
+            color: #333;
+        }
+        .control-group input[type="range"] {
+            width: 160px;
+        }
+        .control-group .value-display {
+            font-size: 12px;
+            color: #000;
+        }
+        .btn {
+            padding: 6px 16px;
+            border: 1px solid #999;
+            cursor: pointer;
+            font-size: 13px;
+            font-family: inherit;
+            background: #fff;
+            transition: all 0.15s;
+        }
+        .btn:hover { background: #eee; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-primary {
+            background: #333;
+            color: #fff;
+            border-color: #333;
+        }
+        .btn-primary:hover { background: #555; }
+        .btn-outline.active {
+            background: #333;
+            color: #fff;
+            border-color: #333;
+        }
+
+        .chart-btn-group {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+
+        /* Preview & Result */
+        .content-row {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        @media (max-width: 900px) {
+            .content-row { grid-template-columns: 1fr; }
+        }
+        .image-panel, .chart-panel {
+            border: 1px solid #ccc;
+            padding: 16px;
+            background: #fff;
+        }
+        .image-panel h3, .chart-panel h3 {
+            margin-bottom: 10px;
+            font-size: 15px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 4px;
+        }
+        .image-panel canvas {
+            max-width: 100%;
+            border: 1px solid #ccc;
+        }
+        .chart-panel { min-height: 420px; }
+        #chart-container { width: 100%; height: 420px; }
+
+        /* Color palette display */
+        .color-palette {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+            padding: 8px;
+            border: 1px solid #ddd;
+        }
+        .color-swatch {
+            width: 36px;
+            height: 36px;
+            border: 1px solid #999;
+            position: relative;
+        }
+        .color-swatch .label {
+            position: absolute;
+            bottom: -16px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            white-space: nowrap;
+            color: #888;
+        }
+
+        /* AI Harmony section */
+        .ai-panel {
+            border: 1px solid #ccc;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .ai-panel h3 {
+            margin-bottom: 10px;
+            font-size: 15px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 4px;
+        }
+        .ai-config {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        @media (max-width: 600px) { .ai-config { grid-template-columns: 1fr; } }
+        .ai-config input {
+            padding: 6px 10px;
+            border: 1px solid #ccc;
+            font-size: 13px;
+            width: 100%;
+            font-family: "Courier New", monospace;
+        }
+        .ai-config input:focus { outline: none; border-color: #000; }
+        .ai-result {
+            margin-top: 12px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            background: #fafafa;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-size: 14px;
+        }
+
+        /* Loading overlay */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255,255,255,0.9);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .loading-overlay.active { display: flex; }
+        .spinner {
+            width: 32px; height: 32px;
+            border: 3px solid #ccc;
+            border-top-color: #333;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>图片像素颜色可视化</h1>
+    <p>K-means 聚类与 ECharts 可视化分析</p>
+</div>
+
+<div class="container">
+    <!-- Upload -->
+    <div class="upload-area" id="upload-area">
+        <div class="icon" style="font-family: sans-serif; color: #aaa; font-size: 28px;">[ ]</div>
+        <p>选择图片上传或拖拽至此处</p>
+        <input type="file" id="file-input" accept="image/*">
+    </div>
+
+    <!-- Controls -->
+    <div class="controls hidden" id="controls">
+        <div class="controls-row">
+            <div class="control-group">
+                <label>聚类数 K: <span class="value-display" id="k-value">5</span></label>
+                <input type="range" id="k-slider" min="2" max="15" value="5" step="1">
+            </div>
+            <div class="control-group">
+                <label>颜色空间</label>
+                <div class="chart-btn-group">
+                    <button class="btn btn-outline active" data-space="rgb">RGB</button>
+                    <button class="btn btn-outline" data-space="lab">LAB</button>
+                </div>
+            </div>
+            <div class="control-group">
+                <label>图表类型</label>
+                <div class="chart-btn-group">
+                    <button class="btn btn-outline active" data-chart="bar">柱状图</button>
+                    <button class="btn btn-outline" data-chart="pie">饼图</button>
+                    <button class="btn btn-outline" data-chart="treemap">矩形树图</button>
+                    <button class="btn btn-outline" data-chart="funnel">漏斗图</button>
+                </div>
+            </div>
+            <div class="control-group" style="margin-left:auto;">
+                <label>&nbsp;</label>
+                <button class="btn btn-primary" id="run-btn" onclick="runClustering()">开始聚类</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image + Chart -->
+    <div class="content-row hidden" id="content-row">
+        <div class="image-panel">
+            <h3>上传的图片</h3>
+            <canvas id="image-canvas" width="300" height="300"></canvas>
+            <h3 style="margin-top:16px;">提取的聚类颜色</h3>
+            <div class="color-palette" id="color-palette"></div>
+        </div>
+        <div class="chart-panel">
+            <h3 id="chart-title">聚类结果可视化</h3>
+            <div id="chart-container"></div>
+        </div>
+    </div>
+
+    <!-- AI Harmony -->
+    <div class="ai-panel hidden" id="ai-panel">
+        <h3>AI 色彩和谐评估</h3>
+        <div class="ai-config">
+            <input type="text" id="api-url" placeholder="API URL (如 https://api.openai.com/v1)">
+            <input type="password" id="api-key" placeholder="API Key (sk-...)">
+        </div>
+        <button class="btn btn-primary" id="ai-btn" onclick="askAI()">调用 AI 评估色彩和谐度</button>
+        <div class="ai-result hidden" id="ai-result"></div>
+    </div>
+</div>
+
+<div class="loading-overlay" id="loading">
+    <div class="spinner"></div>
+    <span id="loading-text">处理中...</span>
+</div>
+
+<script>
+// ===== Global State =====
+let uploadedImage = null;
+let pixelData = null; // array of [r, g, b]
+let currentChart = 'bar';
+let currentSpace = 'rgb';
+let clusteringResult = null;
+let chartInstance = null;
+
+// ===== Upload Handling =====
+const uploadArea = document.getElementById('upload-area');
+const fileInput = document.getElementById('file-input');
+
+uploadArea.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => {
+    if (e.target.files.length > 0) handleFile(e.target.files[0]);
+});
+uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+uploadArea.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+});
+
+function handleFile(file) {
+    if (!file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        const img = new Image();
+        img.onload = () => {
+            uploadedImage = img;
+            extractPixelData(img);
+            showUI();
+            runClustering();
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function extractPixelData(img) {
+    // Scale image down for performance, keep aspect ratio
+    const maxSize = 200;
+    let w = img.width, h = img.height;
+    if (w > maxSize || h > maxSize) {
+        const scale = maxSize / Math.max(w, h);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+    }
+
+    const canvas = document.getElementById('image-canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+    const imageData = ctx.getImageData(0, 0, w, h);
+    pixelData = [];
+    for (let i = 0; i < imageData.data.length; i += 4) {
+        pixelData.push([imageData.data[i], imageData.data[i+1], imageData.data[i+2]]);
+    }
+}
+
+function showUI() {
+    document.getElementById('controls').classList.remove('hidden');
+    document.getElementById('content-row').classList.remove('hidden');
+    document.getElementById('ai-panel').classList.remove('hidden');
+}
+
+// ===== K-means Clustering =====
+function runClustering() {
+    if (!pixelData || pixelData.length === 0) return;
+    const k = parseInt(document.getElementById('k-slider').value);
+    document.getElementById('k-value').textContent = k;
+    showLoading(true, '正在进行 K-means 聚类...');
+
+    setTimeout(() => {
+        try {
+            clusteringResult = kMeansClustering(pixelData, k, currentSpace);
+            updatePalette();
+            updateChart();
+            hideLoading();
+        } catch (e) {
+            hideLoading();
+            alert('聚类出错: ' + e.message);
+            console.error(e);
+        }
+    }, 50);
+}
+
+function kMeansClustering(data, k, space) {
+    // Convert data to target space
+    const converted = data.map(p => convertColor(p, 'rgb', space));
+    const dim = converted[0].length;
+
+    // Initialize centroids using k-means++
+    let centroids = initCentroids(converted, k, dim);
+
+    const maxIter = 20;
+    let assignments = new Array(converted.length);
+
+    for (let iter = 0; iter < maxIter; iter++) {
+        // Assign each point to nearest centroid
+        let changed = false;
+        for (let i = 0; i < converted.length; i++) {
+            let minDist = Infinity, bestCluster = 0;
+            for (let c = 0; c < k; c++) {
+                const d = distSq(converted[i], centroids[c]);
+                if (d < minDist) { minDist = d; bestCluster = c; }
+            }
+            if (assignments[i] !== bestCluster) {
+                assignments[i] = bestCluster;
+                changed = true;
+            }
+        }
+        if (!changed && iter > 0) break;
+
+        // Recompute centroids
+        const sums = Array.from({length: k}, () => new Array(dim).fill(0));
+        const counts = new Array(k).fill(0);
+        for (let i = 0; i < converted.length; i++) {
+            const c = assignments[i];
+            counts[c]++;
+            for (let d = 0; d < dim; d++) sums[c][d] += converted[i][d];
+        }
+        for (let c = 0; c < k; c++) {
+            if (counts[c] > 0) {
+                for (let d = 0; d < dim; d++) centroids[c][d] = sums[c][d] / counts[c];
+            }
+        }
+    }
+
+    // Final assignments
+    const counts = new Array(k).fill(0);
+    for (let i = 0; i < converted.length; i++) counts[assignments[i]]++;
+
+    // Compute mean colors in RGB
+    const rgbSums = Array.from({length: k}, () => [0, 0, 0]);
+    for (let i = 0; i < data.length; i++) {
+        const c = assignments[i];
+        rgbSums[c][0] += data[i][0];
+        rgbSums[c][1] += data[i][1];
+        rgbSums[c][2] += data[i][2];
+    }
+    const meanColors = rgbSums.map((sum, ci) =>
+        counts[ci] > 0
+            ? [Math.round(sum[0]/counts[ci]), Math.round(sum[1]/counts[ci]), Math.round(sum[2]/counts[ci])]
+            : [0, 0, 0]
+    );
+
+    return { k, counts, meanColors, centroids };
+}
+
+function initCentroids(data, k, dim) {
+    // k-means++
+    const centroids = [data[Math.floor(Math.random() * data.length)].slice()];
+    const dists = new Array(data.length);
+
+    for (let i = 0; i < data.length; i++) {
+        dists[i] = distSq(data[i], centroids[0]);
+    }
+
+    for (let c = 1; c < k; c++) {
+        let total = dists.reduce((a, b) => a + b, 0);
+        let r = Math.random() * total;
+        let idx = 0;
+        for (let i = 0; i < dists.length; i++) {
+            r -= dists[i];
+            if (r <= 0) { idx = i; break; }
+        }
+        centroids.push(data[idx].slice());
+        // Update distances
+        for (let i = 0; i < data.length; i++) {
+            const nd = distSq(data[i], centroids[c]);
+            if (nd < dists[i]) dists[i] = nd;
+        }
+    }
+    return centroids;
+}
+
+function distSq(a, b) {
+    let sum = 0;
+    for (let i = 0; i < a.length; i++) sum += (a[i] - b[i]) ** 2;
+    return sum;
+}
+
+// ===== Color Space Conversion =====
+function convertColor(color, from, to) {
+    if (from === to) return color;
+
+    let lab;
+    if (from === 'rgb' && to === 'lab') {
+        return rgbToLab(color);
+    }
+    if (from === 'lab' && to === 'rgb') {
+        return labToRgb(color);
+    }
+    return color;
+}
+
+function rgbToLab(rgb) {
+    // sRGB -> linear RGB
+    const r = linearize(rgb[0] / 255);
+    const g = linearize(rgb[1] / 255);
+    const b = linearize(rgb[2] / 255);
+
+    // linear RGB -> XYZ (sRGB D65)
+    const x = (r * 0.4124564 + g * 0.3575761 + b * 0.1804375) * 100;
+    const y = (r * 0.2126729 + g * 0.7151522 + b * 0.0721750) * 100;
+    const z = (r * 0.0193339 + g * 0.1191920 + b * 0.9503041) * 100;
+
+    // XYZ -> LAB (D65 reference)
+    const xn = 95.047, yn = 100.000, zn = 108.883;
+    const fx = fLab(x / xn), fy = fLab(y / yn), fz = fLab(z / zn);
+    return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+
+function labToRgb(lab) {
+    const xn = 95.047, yn = 100.000, zn = 108.883;
+    const fy = (lab[0] + 16) / 116;
+    const fx = lab[1] / 500 + fy;
+    const fz = fy - lab[2] / 200;
+
+    const x = finvLab(fx) * xn;
+    const y = finvLab(fy) * yn;
+    const z = finvLab(fz) * zn;
+
+    // XYZ -> linear RGB
+    const xr = x / 100, yr = y / 100, zr = z / 100;
+    let r =  xr *  3.2404542 + yr * -1.5371385 + zr * -0.4985314;
+    let g =  xr * -0.9692660 + yr *  1.8760108 + zr *  0.0415560;
+    let b =  xr *  0.0556434 + yr * -0.2040259 + zr *  1.0572252;
+
+    // linear RGB -> sRGB
+    r = delinearize(r) * 255;
+    g = delinearize(g) * 255;
+    b = delinearize(b) * 255;
+
+    return [clamp(Math.round(r)), clamp(Math.round(g)), clamp(Math.round(b))];
+}
+
+function linearize(c) {
+    return c > 0.04045 ? Math.pow((c + 0.055) / 1.055, 2.4) : c / 12.92;
+}
+function delinearize(c) {
+    return c > 0.0031308 ? 1.055 * Math.pow(c, 1/2.4) - 0.055 : 12.92 * c;
+}
+function fLab(t) {
+    return t > 0.008856 ? Math.cbrt(t) : (7.787 * t) + 16/116;
+}
+function finvLab(t) {
+    return t > 0.206893 ? t*t*t : (t - 16/116) / 7.787;
+}
+function clamp(v) { return Math.max(0, Math.min(255, v)); }
+
+// ===== Palette Display =====
+function updatePalette() {
+    const container = document.getElementById('color-palette');
+    container.innerHTML = '';
+    const { meanColors, counts } = clusteringResult;
+    const total = counts.reduce((a, b) => a + b, 0);
+
+    meanColors.forEach((color, i) => {
+        const swatch = document.createElement('div');
+        swatch.className = 'color-swatch';
+        swatch.style.background = `rgb(${color[0]},${color[1]},${color[2]})`;
+        swatch.innerHTML = `<span class="label">C${i+1} ${(counts[i]/total*100).toFixed(1)}%</span>`;
+        container.appendChild(swatch);
+    });
+}
+
+// ===== ECharts Visualization =====
+function updateChart() {
+    if (!clusteringResult) return;
+    const { k, counts, meanColors } = clusteringResult;
+    const total = counts.reduce((a, b) => a + b, 0);
+
+    if (chartInstance) chartInstance.dispose();
+    chartInstance = echarts.init(document.getElementById('chart-container'));
+
+    const chartNames = {
+        bar: '柱状图 - 各颜色聚类占比',
+        pie: '饼图 - 各颜色聚类占比',
+        treemap: '矩形树图 - 各颜色聚类占比',
+        funnel: '漏斗图 - 各颜色聚类占比'
+    };
+    document.getElementById('chart-title').textContent = chartNames[currentChart] || '';
+
+    const names = meanColors.map((c, i) => `C${i+1} rgb(${c[0]},${c[1]},${c[2]})`);
+    const percents = counts.map(c => ((c / total) * 100).toFixed(2));
+    const colors = meanColors.map(c => `rgb(${c[0]},${c[1]},${c[2]})`);
+    const sortedIndices = counts.map((v, i) => i).sort((a, b) => counts[b] - counts[a]);
+
+    let option = {};
+    const tooltip = {
+        trigger: currentChart === 'bar' ? 'axis' : 'item',
+        formatter: currentChart === 'bar'
+            ? function(params) {
+                const p = params[0];
+                const ci = sortedIndices[p.dataIndex];
+                return `${p.name}<br/>像素数量: ${counts[ci].toLocaleString()} (${percents[ci]}%)`;
+            }
+            : function(params) {
+                return `${params.name}<br/>像素数量: ${params.value.toLocaleString()} (${percents[sortedIndices[params.dataIndex]]}%)`;
+            }
+    };
+
+    switch (currentChart) {
+        case 'bar':
+            const sortedData = sortedIndices.map(i => ({
+                value: counts[i],
+                itemStyle: { color: colors[i] }
+            }));
+            const sortedNames = sortedIndices.map(i => names[i]);
+            option = {
+                tooltip,
+                xAxis: { type: 'category', data: sortedNames, axisLabel: { rotate: 30 } },
+                yAxis: { type: 'value', name: '像素数量' },
+                series: [{
+                    type: 'bar',
+                    data: sortedData,
+                    label: {
+                        show: true,
+                        position: 'top',
+                        formatter: p => percents[sortedIndices[p.dataIndex]] + '%'
+                    }
+                }]
+            };
+            break;
+
+        case 'pie':
+            option = {
+                tooltip,
+                series: [{
+                    type: 'pie',
+                    radius: ['30%', '70%'],
+                    avoidLabelOverlap: true,
+                    itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+                    label: {
+                        show: true,
+                        formatter: '{b}: {d}%'
+                    },
+                    data: sortedIndices.map(i => ({
+                        name: names[i],
+                        value: counts[i],
+                        itemStyle: { color: colors[i] }
+                    }))
+                }]
+            };
+            break;
+
+        case 'treemap':
+            option = {
+                tooltip,
+                series: [{
+                    type: 'treemap',
+                    width: '95%',
+                    height: '90%',
+                    label: {
+                        show: true,
+                        formatter: '{b}\n{d}%'
+                    },
+                    itemStyle: { borderColor: '#fff', borderWidth: 2, gapWidth: 2 },
+                    data: sortedIndices.map(i => ({
+                        name: names[i],
+                        value: counts[i],
+                        itemStyle: { color: colors[i] }
+                    }))
+                }]
+            };
+            break;
+
+        case 'funnel':
+            option = {
+                tooltip,
+                series: [{
+                    type: 'funnel',
+                    width: '70%',
+                    height: '80%',
+                    left: '15%',
+                    top: '10%',
+                    sort: 'descending',
+                    label: { show: true, position: 'inside', formatter: '{b} {d}%' },
+                    itemStyle: { borderColor: '#fff', borderWidth: 1 },
+                    data: sortedIndices.map(i => ({
+                        name: names[i],
+                        value: counts[i],
+                        itemStyle: { color: colors[i] }
+                    }))
+                }]
+            };
+            break;
+    }
+
+    chartInstance.setOption(option, true);
+    window.addEventListener('resize', () => chartInstance && chartInstance.resize());
+}
+
+// ===== UI Event Handlers =====
+document.getElementById('k-slider').addEventListener('input', e => {
+    document.getElementById('k-value').textContent = e.target.value;
+});
+document.getElementById('k-slider').addEventListener('change', () => {
+    if (pixelData) runClustering();
+});
+
+document.querySelectorAll('[data-space]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-space]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentSpace = btn.dataset.space;
+        if (pixelData) runClustering();
+    });
+});
+
+document.querySelectorAll('[data-chart]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-chart]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentChart = btn.dataset.chart;
+        if (clusteringResult) updateChart();
+    });
+});
+
+// ===== AI Harmony Judgment =====
+async function askAI() {
+    const apiUrl = document.getElementById('api-url').value.trim();
+    const apiKey = document.getElementById('api-key').value.trim();
+
+    if (!apiUrl || !apiKey) {
+        alert('请填写 API URL 和 API Key');
+        return;
+    }
+    if (!clusteringResult) {
+        alert('请先上传图片并完成聚类');
+        return;
+    }
+
+    const { k, meanColors, counts } = clusteringResult;
+    const colorDesc = meanColors.map((c, i) =>
+        `C${i+1}: RGB(${c[0]}, ${c[1]}, ${c[2]}, 占比${(counts[i]/counts.reduce((a,b)=>a+b,0)*100).toFixed(1)}%)`
+    ).join('、');
+
+    const prompt = `我有一张图片，使用K-means聚类(k=${k})提取出了以下${k}种主要颜色及其占比。请评估这些颜色搭配是否和谐：
+
+颜色列表：${colorDesc}
+
+请从色彩理论角度分析：
+1. 这些颜色的色相分布是否和谐
+2. 配色风格倾向（如：互补色、类似色、三角配色等）
+3. 整体视觉效果和适用场景建议
+4. 综合评分（0-10分）
+
+请用中文回答。`;
+
+    const resultDiv = document.getElementById('ai-result');
+    resultDiv.classList.remove('hidden');
+    resultDiv.textContent = '正在请求 AI 分析...';
+
+    try {
+        const response = await fetch(apiUrl.replace(/\/+$/, '') + '/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.7,
+                max_tokens: 1024
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const reply = data.choices?.[0]?.message?.content;
+        if (reply) {
+            resultDiv.textContent = reply;
+        } else {
+            resultDiv.textContent = 'AI 返回为空响应: ' + JSON.stringify(data);
+        }
+    } catch (err) {
+        resultDiv.textContent = '请求失败: ' + err.message;
+    }
+}
+
+// ===== Loading =====
+function showLoading(show, text) {
+    const el = document.getElementById('loading');
+    if (text) document.getElementById('loading-text').textContent = text;
+    el.classList.toggle('active', show);
+}
+function hideLoading() { showLoading(false); }
+</script>
+</body>
+</html>
